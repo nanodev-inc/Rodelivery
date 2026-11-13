@@ -1,0 +1,61 @@
+name: Build CraveCart APK
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Set up Gradle 9.3.1
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.3.1'
+
+      - name: Build release APK (when signing secrets are configured)
+        if: ${{ secrets.UPLOAD_KEYSTORE_BASE64 != '' && secrets.STORE_PASSWORD != '' && secrets.KEY_PASSWORD != '' }}
+        env:
+          UPLOAD_KEYSTORE_BASE64: ${{ secrets.UPLOAD_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          echo "$UPLOAD_KEYSTORE_BASE64" | base64 -d > my-upload-key.jks
+          gradle :app:assembleRelease
+          cp app/build/outputs/apk/release/app-release.apk CraveCart.apk
+
+      - name: Build debug APK (fallback when release signing secrets are not set)
+        if: ${{ secrets.UPLOAD_KEYSTORE_BASE64 == '' || secrets.STORE_PASSWORD == '' || secrets.KEY_PASSWORD == '' }}
+        run: |
+          if [ ! -f debug.keystore ]; then
+            keytool -genkeypair -v \
+              -keystore debug.keystore \
+              -storepass android \
+              -alias androiddebugkey \
+              -keypass android \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -dname "CN=Android Debug,O=Android,C=US"
+          fi
+          gradle :app:assembleDebug
+          cp app/build/outputs/apk/debug/app-debug.apk CraveCart.apk
+
+      - name: Upload CraveCart.apk
+        uses: actions/upload-artifact@v4
+        with:
+          name: CraveCart-APK
+          path: CraveCart.apk
